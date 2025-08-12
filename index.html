@@ -1,66 +1,225 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>MindAR Fullscreen Video</title>
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.3/dist/mindar-image-aframe.prod.js"></script>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Video Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/ar.min.js"></script>
     <style>
-      body { margin: 0; overflow: hidden; }
-      #log {
-        position: absolute;
-        top: 0;
-        left: 0;
-        color: lime;
-        background: rgba(0,0,0,0.7);
-        padding: 5px;
-        font-family: monospace;
-        font-size: 12px;
-        z-index: 10;
-      }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 1000;
+        }
+
+        #startButton {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        #startButton:hover {
+            background: #0056b3;
+        }
+
+        #instructions {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            max-width: 300px;
+            z-index: 100;
+            display: none;
+        }
+
+        #arjsDebugUIContainer {
+            display: none !important;
+        }
     </style>
-  </head>
-  <body>
-    <div id="log">Loading...</div>
+</head>
+<body>
+    <div id="loadingScreen">
+        <h1>AR Video Player</h1>
+        <p>Наведите камеру на маркер, чтобы увидеть видео</p>
+        <button id="startButton">Запустить AR</button>
+        <p style="font-size: 12px; margin-top: 20px; text-align: center;">
+            Разрешите доступ к камере<br>
+            Скачайте маркер для тестирования: 
+            <a href="https://jeromeetienne.github.io/AR.js/data/images/HIRO.jpg" 
+               style="color: #007bff;" target="_blank">HIRO маркер</a>
+        </p>
+    </div>
 
+    <div id="instructions">
+        <strong>Инструкция:</strong><br>
+        1. Направьте камеру на маркер<br>
+        2. Держите устройство устойчиво<br>
+        3. Видео воспроизведется автоматически
+    </div>
+
+    <!-- AR.js Scene -->
     <a-scene
-      mindar-image="imageTargetSrc: ./target.mind;"
-      embedded
-      color-space="sRGB"
-      vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: false"
-      renderer="colorManagement: true, physicallyCorrectLights">
+        id="arScene"
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+        renderer="logarithmicDepthBuffer: true; precision: medium;"
+        vr-mode-ui="enabled: false"
+        gesture-detector
+        style="display: none;">
+        
+        <a-assets>
+            <!-- Локальное видео из корня репозитория -->
+            <video
+                id="videoAsset"
+                src="./video.mp4"
+                preload="auto"
+                loop
+                crossorigin="anonymous"
+                webkit-playsinline
+                playsinline
+                muted>
+            </video>
+        </a-assets>
 
-      <a-assets>
-        <video id="vid" src="video.mp4" preload="auto" loop muted playsinline></video>
-      </a-assets>
+        <!-- Маркер с локальным .patt файлом -->
+        <a-marker 
+            id="videoMarker"
+            type="pattern"
+            url="./my-marker.patt"
+            raycaster="objects: .clickable"
+            emitevents="true"
+            cursor="fuse: false; rayOrigin: mouse;">
+            
+            <!-- Плоскость для видео -->
+            <a-plane
+                id="videoPlane"
+                material="src: #videoAsset; transparent: true; alphaTest: 0.5;"
+                width="2"
+                height="1.5"
+                position="0 0 0"
+                rotation="-90 0 0"
+                gesture-handler>
+            </a-plane>
+            
+        </a-marker>
 
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-      <a-entity mindar-image-target="targetIndex: 0" id="marker">
-        <a-video src="#vid" width="2" height="1.2" position="0 0 0" rotation="0 0 0"></a-video>
-      </a-entity>
+        <!-- Камера -->
+        <a-entity camera></a-entity>
     </a-scene>
 
     <script>
-      const logBox = document.getElementById('log');
-      const marker = document.getElementById('marker');
-      const video = document.getElementById('vid');
+        let arScene = null;
+        let video = null;
+        let isVideoPlaying = false;
 
-      function log(msg) {
-        console.log(msg);
-        logBox.textContent = msg;
-      }
+        // Запуск AR
+        document.getElementById('startButton').addEventListener('click', async function() {
+            try {
+                // Запрос разрешения на камеру
+                await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                
+                // Скрыть загрузочный экран
+                document.getElementById('loadingScreen').style.display = 'none';
+                
+                // Показать AR сцену
+                arScene = document.getElementById('arScene');
+                arScene.style.display = 'block';
+                
+                // Показать инструкции
+                document.getElementById('instructions').style.display = 'block';
+                
+                // Получить видео элемент
+                video = document.getElementById('videoAsset');
+                
+                // Настройка событий маркера
+                setupMarkerEvents();
+                
+            } catch (error) {
+                alert('Ошибка доступа к камере: ' + error.message);
+            }
+        });
 
-      marker.addEventListener('targetFound', () => {
-        log("Marker found!");
-        video.play().catch(err => log("Video play error: " + err));
-      });
+        function setupMarkerEvents() {
+            const marker = document.getElementById('videoMarker');
+            
+            // Когда маркер найден
+            marker.addEventListener('markerFound', function() {
+                console.log('Маркер найден');
+                playVideo();
+                // Скрыть инструкции
+                document.getElementById('instructions').style.display = 'none';
+            });
+            
+            // Когда маркер потерян
+            marker.addEventListener('markerLost', function() {
+                console.log('Маркер потерян');
+                pauseVideo();
+                // Показать инструкции снова
+                document.getElementById('instructions').style.display = 'block';
+            });
+        }
 
-      marker.addEventListener('targetLost', () => {
-        log("Marker lost!");
-        video.pause();
-      });
+        function playVideo() {
+            if (video && !isVideoPlaying) {
+                video.play().then(() => {
+                    isVideoPlaying = true;
+                    console.log('Видео запущено');
+                }).catch(error => {
+                    console.log('Ошибка воспроизведения видео:', error);
+                });
+            }
+        }
+
+        function pauseVideo() {
+            if (video && isVideoPlaying) {
+                video.pause();
+                isVideoPlaying = false;
+                console.log('Видео приостановлено');
+            }
+        }
+
+        // Обработка изменения ориентации экрана
+        window.addEventListener('orientationchange', function() {
+            if (arScene) {
+                setTimeout(() => {
+                    arScene.renderer.setSize(window.innerWidth, window.innerHeight);
+                }, 500);
+            }
+        });
+
+        // Предотвращение случайного закрытия
+        window.addEventListener('beforeunload', function(e) {
+            if (isVideoPlaying) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
     </script>
-  </body>
+</body>
 </html>
