@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>MindAR Debug Video</title>
+    <title>MindAR Fullscreen Video</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.3/dist/mindar-image-aframe.prod.js"></script>
     <style>
@@ -16,58 +16,50 @@
         padding: 5px;
         font-family: monospace;
         font-size: 12px;
-        z-index: 1000;
+        z-index: 10;
       }
     </style>
   </head>
   <body>
     <div id="log">Loading...</div>
 
-    <a-scene 
-      mindar-image="imageTargetSrc: ./target.mind;" 
-      embedded 
-      color-space="sRGB" 
-      vr-mode-ui="enabled: false" 
+    <a-scene
+      mindar-image="imageTargetSrc: ./target.mind;"
+      embedded
+      color-space="sRGB"
+      vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       renderer="colorManagement: true, physicallyCorrectLights">
-      
+
       <a-assets>
-        <video id="vid" src="video.mp4" preload="auto" loop></video>
+        <video id="vid" src="video.mp4" preload="auto" loop muted playsinline></video>
       </a-assets>
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
       <a-entity mindar-image-target="targetIndex: 0" id="marker">
-        <a-video src="#vid" width="1" height="0.6" position="0 0 0" rotation="0 0 0"></a-video>
+        <a-video src="#vid" width="2" height="1.2" position="0 0 0" rotation="0 0 0"></a-video>
       </a-entity>
     </a-scene>
 
     <script>
-      const log = document.getElementById('log');
+      const logBox = document.getElementById('log');
       const marker = document.getElementById('marker');
       const video = document.getElementById('vid');
 
-      function logMsg(msg) {
+      function log(msg) {
         console.log(msg);
-        log.textContent = msg;
+        logBox.textContent = msg;
       }
 
       marker.addEventListener('targetFound', () => {
-        logMsg('Marker found!');
-        video.play().catch(err => logMsg('Video play error: ' + err));
+        log("Marker found!");
+        video.play().catch(err => log("Video play error: " + err));
       });
 
       marker.addEventListener('targetLost', () => {
-        logMsg('Marker lost!');
+        log("Marker lost!");
         video.pause();
-      });
-
-      navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } }
-      }).then(stream => {
-        logMsg('Camera access OK');
-      }).catch(err => {
-        logMsg('getUserMedia error: ' + err.name + ' - ' + err.message);
       });
     </script>
   </body>
