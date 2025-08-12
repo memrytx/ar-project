@@ -2,15 +2,27 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>MindAR Marker Video</title>
+    <title>MindAR Debug Video</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.3/dist/mindar-image-aframe.prod.js"></script>
     <style>
       body { margin: 0; overflow: hidden; }
-      video { display: none; }
+      #log {
+        position: absolute;
+        top: 0;
+        left: 0;
+        color: lime;
+        background: rgba(0,0,0,0.7);
+        padding: 5px;
+        font-family: monospace;
+        font-size: 12px;
+        z-index: 1000;
+      }
     </style>
   </head>
   <body>
+    <div id="log">Loading...</div>
+
     <a-scene 
       mindar-image="imageTargetSrc: ./target.mind;" 
       embedded 
@@ -31,17 +43,31 @@
     </a-scene>
 
     <script>
-      const marker = document.querySelector('#marker');
-      const video = document.querySelector('#vid');
+      const log = document.getElementById('log');
+      const marker = document.getElementById('marker');
+      const video = document.getElementById('vid');
+
+      function logMsg(msg) {
+        console.log(msg);
+        log.textContent = msg;
+      }
 
       marker.addEventListener('targetFound', () => {
-        console.log('Marker found!');
-        video.play().catch(err => console.error(err));
+        logMsg('Marker found!');
+        video.play().catch(err => logMsg('Video play error: ' + err));
       });
 
       marker.addEventListener('targetLost', () => {
-        console.log('Marker lost!');
+        logMsg('Marker lost!');
         video.pause();
+      });
+
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      }).then(stream => {
+        logMsg('Camera access OK');
+      }).catch(err => {
+        logMsg('getUserMedia error: ' + err.name + ' - ' + err.message);
       });
     </script>
   </body>
