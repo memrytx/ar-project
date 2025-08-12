@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Video Player</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/ar.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aframe/1.2.0/aframe.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/aframe-ar.js"></script>
     <style>
         body {
             margin: 0;
@@ -49,48 +49,57 @@
             position: fixed;
             top: 20px;
             left: 20px;
+            right: 20px;
             color: white;
             background: rgba(0, 0, 0, 0.7);
             padding: 15px;
             border-radius: 8px;
             font-size: 14px;
-            max-width: 300px;
             z-index: 100;
-            display: none;
+            text-align: center;
         }
 
+        /* Скрыть стандартные элементы AR.js */
+        .a-enter-vr-button {
+            display: none !important;
+        }
+        
         #arjsDebugUIContainer {
             display: none !important;
+        }
+
+        a-scene {
+            width: 100vw !important;
+            height: 100vh !important;
         }
     </style>
 </head>
 <body>
     <div id="loadingScreen">
         <h1>AR Video Player</h1>
-        <p>Наведите камеру на маркер, чтобы увидеть видео</p>
-        <button id="startButton">Запустить AR</button>
+        <p>Наведите камеру на маркер, чтобы увидеть видео в AR</p>
+        <button id="startButton">Запустить камеру</button>
         <p style="font-size: 12px; margin-top: 20px; text-align: center;">
             Разрешите доступ к камере<br>
-            Скачайте маркер для тестирования: 
+            Для тестирования можете использовать: 
             <a href="https://jeromeetienne.github.io/AR.js/data/images/HIRO.jpg" 
                style="color: #007bff;" target="_blank">HIRO маркер</a>
         </p>
     </div>
 
     <div id="instructions">
-        <strong>Инструкция:</strong><br>
-        1. Направьте камеру на маркер<br>
-        2. Держите устройство устойчиво<br>
-        3. Видео воспроизведется автоматически
+        <strong>Направьте камеру на маркер</strong><br>
+        Видео появится автоматически при обнаружении маркера
     </div>
 
-    <!-- AR.js Scene -->
+    <!-- A-Frame AR Scene -->
     <a-scene
         id="arScene"
+        embedded
         arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
-        renderer="logarithmicDepthBuffer: true; precision: medium;"
+        renderer="logarithmicDepthBuffer: true; colorManagement: true; sortObjects: true;"
         vr-mode-ui="enabled: false"
-        gesture-detector
+        device-orientation-permission-ui="enabled: false"
         style="display: none;">
         
         <a-assets>
@@ -103,7 +112,8 @@
                 crossorigin="anonymous"
                 webkit-playsinline
                 playsinline
-                muted>
+                muted
+                style="display: none;">
             </video>
         </a-assets>
 
@@ -113,112 +123,157 @@
             type="pattern"
             url="./my-marker.patt"
             raycaster="objects: .clickable"
-            emitevents="true"
-            cursor="fuse: false; rayOrigin: mouse;">
+            emitevents="true">
             
-            <!-- Плоскость для видео -->
+            <!-- 3D плоскость для видео, изначально невидимая -->
             <a-plane
                 id="videoPlane"
-                material="src: #videoAsset; transparent: true; alphaTest: 0.5;"
-                width="2"
-                height="1.5"
-                position="0 0 0"
+                material="src: #videoAsset; transparent: true; opacity: 0;"
+                width="3"
+                height="2.25"
+                position="0 0.5 0"
                 rotation="-90 0 0"
-                gesture-handler>
+                visible="false">
             </a-plane>
             
         </a-marker>
 
-        <!-- Камера -->
-        <a-entity camera></a-entity>
+        <!-- AR камера -->
+        <a-entity camera look-controls="enabled: false"></a-entity>
     </a-scene>
 
     <script>
         let arScene = null;
         let video = null;
+        let videoPlane = null;
         let isVideoPlaying = false;
+        let markerFound = false;
 
-        // Запуск AR
+        // Запуск AR камеры
         document.getElementById('startButton').addEventListener('click', async function() {
             try {
-                // Запрос разрешения на камеру
-                await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                // Запрос разрешения на камеру (задняя камера для AR)
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
                 
                 // Скрыть загрузочный экран
                 document.getElementById('loadingScreen').style.display = 'none';
                 
-                // Показать AR сцену
+                // Показать AR сцену (вид с камеры)
                 arScene = document.getElementById('arScene');
                 arScene.style.display = 'block';
                 
-                // Показать инструкции
-                document.getElementById('instructions').style.display = 'block';
-                
-                // Получить видео элемент
+                // Получить элементы
                 video = document.getElementById('videoAsset');
+                videoPlane = document.getElementById('videoPlane');
                 
                 // Настройка событий маркера
                 setupMarkerEvents();
                 
+                // Подготовить видео
+                prepareVideo();
+                
             } catch (error) {
                 alert('Ошибка доступа к камере: ' + error.message);
+                console.error('Camera error:', error);
             }
         });
 
         function setupMarkerEvents() {
             const marker = document.getElementById('videoMarker');
             
-            // Когда маркер найден
+            // Когда маркер найден - показать и воспроизвести видео
             marker.addEventListener('markerFound', function() {
-                console.log('Маркер найден');
-                playVideo();
+                console.log('Маркер найден - показываем видео');
+                markerFound = true;
+                showAndPlayVideo();
                 // Скрыть инструкции
                 document.getElementById('instructions').style.display = 'none';
             });
             
-            // Когда маркер потерян
+            // Когда маркер потерян - скрыть и остановить видео
             marker.addEventListener('markerLost', function() {
-                console.log('Маркер потерян');
-                pauseVideo();
-                // Показать инструкции снова
+                console.log('Маркер потерян - скрываем видео');
+                markerFound = false;
+                hideAndPauseVideo();
+                // Показать инструкции
                 document.getElementById('instructions').style.display = 'block';
             });
         }
 
-        function playVideo() {
-            if (video && !isVideoPlaying) {
+        function prepareVideo() {
+            // Предзагрузка видео
+            video.load();
+            
+            // Обработка загрузки видео
+            video.addEventListener('loadeddata', function() {
+                console.log('Видео загружено и готово к воспроизведению');
+            });
+            
+            video.addEventListener('error', function(e) {
+                console.error('Ошибка загрузки видео:', e);
+            });
+        }
+
+        function showAndPlayVideo() {
+            if (!videoPlane || !video) return;
+            
+            // Показать плоскость с видео
+            videoPlane.setAttribute('visible', true);
+            videoPlane.setAttribute('material', 'opacity', 1);
+            
+            // Воспроизвести видео
+            if (!isVideoPlaying) {
                 video.play().then(() => {
                     isVideoPlaying = true;
-                    console.log('Видео запущено');
+                    console.log('Видео воспроизводится в AR');
                 }).catch(error => {
-                    console.log('Ошибка воспроизведения видео:', error);
+                    console.error('Ошибка воспроизведения видео:', error);
                 });
             }
         }
 
-        function pauseVideo() {
-            if (video && isVideoPlaying) {
+        function hideAndPauseVideo() {
+            if (!videoPlane || !video) return;
+            
+            // Скрыть плоскость с видео
+            videoPlane.setAttribute('visible', false);
+            videoPlane.setAttribute('material', 'opacity', 0);
+            
+            // Остановить видео
+            if (isVideoPlaying) {
                 video.pause();
                 isVideoPlaying = false;
-                console.log('Видео приостановлено');
+                console.log('Видео остановлено');
             }
         }
 
-        // Обработка изменения ориентации экрана
+        // Обработка поворота экрана
         window.addEventListener('orientationchange', function() {
-            if (arScene) {
-                setTimeout(() => {
-                    arScene.renderer.setSize(window.innerWidth, window.innerHeight);
-                }, 500);
+            setTimeout(() => {
+                if (arScene && arScene.systems.renderer) {
+                    arScene.systems.renderer.resize();
+                }
+            }, 500);
+        });
+
+        // Обработка потери фокуса (переключение вкладок)
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isVideoPlaying) {
+                video.pause();
+            } else if (!document.hidden && markerFound) {
+                showAndPlayVideo();
             }
         });
 
-        // Предотвращение случайного закрытия
-        window.addEventListener('beforeunload', function(e) {
-            if (isVideoPlaying) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
+        // Отладочная информация
+        window.addEventListener('load', function() {
+            console.log('Страница загружена. AR.js версия:', AFRAME.version);
         });
     </script>
 </body>
